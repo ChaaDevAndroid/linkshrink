@@ -1,0 +1,11 @@
+.git
+.vscode
+*.md
+.env
+.env.*
+merged-*.yaml
+compose*.yaml
+Dockerfile
+tmp/
+server
+server.exe

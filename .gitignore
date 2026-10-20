@@ -1,5 +1,13 @@
-.idea
-.vscode
-bin/*
-data/*
-tmp
+# secrets and generated config
+.env
+.env.*
+!.env.example
+merged-*.yaml
+
+# build output
+server
+server.exe
+tmp/
+
+# editor
+.vscode/
