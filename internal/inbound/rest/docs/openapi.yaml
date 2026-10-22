@@ -36,29 +36,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/Link"
         "400":
-          description: Malformed JSON
+          description: Malformed JSON (code invalid_json)
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorResponse"
         "413":
-          description: Request body larger than 1 MB
+          description: Request body larger than 1 MB (code body_too_large)
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: URL is not a valid http or https URL
+          description: URL is not a valid http or https URL (code invalid_url)
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorResponse"
         "500":
-          description: Internal server error
+          description: Internal server error (code internal_error)
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorResponse"
   /{code}:
     get:
       summary: Follow a short link
@@ -81,17 +81,16 @@ paths:
                 type: string
                 example: https://example.com
         "404":
-          description: Unknown short code
+          description: Unknown short code (code not_found)
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-        "500":
-          description: Internal server error
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Internal server error (code internal_error)
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     CreateRequest:
@@ -113,3 +112,18 @@ components:
         created_at:
           type: string
           format: date-time
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            status:
+              type: integer
+              example: 422
+            code:
+              type: string
+              example: invalid_url
+            message:
+              type: string
+              example: url must be a valid http or https URL

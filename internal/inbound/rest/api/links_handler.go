@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"time"
 
 	"golinkshrink.com/linkshrink/internal/domain/link"
@@ -40,23 +39,21 @@ func (h *LinksHandler) create(w http.ResponseWriter, r *http.Request) {
 	var req createRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			writeError(w, http.StatusRequestEntityTooLarge, codeBodyTooLarge, "request body too large")
 			return
 		}
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	u, err := url.ParseRequestURI(req.URL)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		http.Error(w, "url must be a valid http or https URL", http.StatusUnprocessableEntity)
+		writeError(w, http.StatusBadRequest, codeInvalidJSON, "request body must be valid JSON")
 		return
 	}
 
 	l, err := h.service.Create(r.Context(), req.URL)
 	if err != nil {
+		if errors.Is(err, link.ErrInvalidURL) {
+			writeError(w, http.StatusUnprocessableEntity, codeInvalidURL, "url must be a valid http or https URL")
+			return
+		}
 		slog.Error("create link failed", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
 		return
 	}
 
@@ -75,11 +72,11 @@ func (h *LinksHandler) redirect(w http.ResponseWriter, r *http.Request) {
 	l, err := h.service.Resolve(r.Context(), code)
 	if err != nil {
 		if errors.Is(err, link.ErrNotFound) {
-			http.Error(w, "link not found", http.StatusNotFound)
+			writeError(w, http.StatusNotFound, codeNotFound, "link not found")
 			return
 		}
 		slog.Error("resolve link failed", "code", code, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
 		return
 	}
 

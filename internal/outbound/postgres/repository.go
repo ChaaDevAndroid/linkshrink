@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"golinkshrink.com/linkshrink/internal/domain/link"
 )
 
@@ -26,6 +28,10 @@ func (r *repository) Save(ctx context.Context, l link.Link) error {
 		l.ShortCode, l.LongURL, l.CreatedAt,
 	)
 	if err != nil {
+		// 23505 is Postgres's code for a unique violation (duplicate short_code).
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
+			return link.ErrCodeTaken
+		}
 		return fmt.Errorf("save link: %w", err)
 	}
 	return nil
