@@ -5,13 +5,17 @@ import (
 
 	"golinkshrink.com/linkshrink/internal/domain/link"
 	"golinkshrink.com/linkshrink/internal/inbound/rest/api"
+	"golinkshrink.com/linkshrink/internal/inbound/rest/docs"
 	"golinkshrink.com/linkshrink/internal/inbound/rest/middleware"
 )
 
-func New(linkService link.Service) http.Handler {
+func New(linkService link.Service, enableDocs bool) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", healthCheck)
+	if enableDocs {
+		docs.Register(mux)
+	}
 	api.NewLinksHandler(linkService).Register(mux)
 
 	return middleware.Logging(middleware.Recovery(mux))

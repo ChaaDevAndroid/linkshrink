@@ -36,7 +36,7 @@ func run() error {
 	repo := postgres.NewRepository(db)
 	svc := link.NewService(repo)
 
-	handler := server.New(svc)
+	handler := server.New(svc, cfg.EnableDocs)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

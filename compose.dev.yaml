@@ -6,6 +6,8 @@ services:
       - "127.0.0.1:5432:5432"
 
   api:
+    environment:
+      ENABLE_DOCS: "true"
     develop:
       watch:
         - action: rebuild

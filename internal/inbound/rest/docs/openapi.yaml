@@ -1,0 +1,115 @@
+openapi: 3.0.3
+info:
+  title: LinkShrink API
+  version: 0.1.0
+  description: URL shortener. Create a short link, then follow it to be redirected.
+servers:
+  - url: /
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: health
+      responses:
+        "200":
+          description: Service is up
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: LinkShrink is alive
+  /links:
+    post:
+      summary: Create a short link
+      operationId: createLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRequest"
+      responses:
+        "201":
+          description: Link created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        "400":
+          description: Malformed JSON
+          content:
+            text/plain:
+              schema:
+                type: string
+        "413":
+          description: Request body larger than 1 MB
+          content:
+            text/plain:
+              schema:
+                type: string
+        "422":
+          description: URL is not a valid http or https URL
+          content:
+            text/plain:
+              schema:
+                type: string
+        "500":
+          description: Internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+  /{code}:
+    get:
+      summary: Follow a short link
+      description: Redirects to the original URL. The "Try it out" button can't show this
+        properly, because the browser follows the redirect itself. Use curl -i instead.
+      operationId: redirect
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            example: XzsS28
+      responses:
+        "302":
+          description: Redirect to the original URL
+          headers:
+            Location:
+              schema:
+                type: string
+                example: https://example.com
+        "404":
+          description: Unknown short code
+          content:
+            text/plain:
+              schema:
+                type: string
+        "500":
+          description: Internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  schemas:
+    CreateRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          example: https://example.com
+    Link:
+      type: object
+      properties:
+        short_code:
+          type: string
+          example: XzsS28
+        long_url:
+          type: string
+          example: https://example.com
+        created_at:
+          type: string
+          format: date-time
