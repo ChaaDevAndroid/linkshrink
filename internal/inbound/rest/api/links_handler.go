@@ -21,6 +21,7 @@ func NewLinksHandler(service link.Service) *LinksHandler {
 func (h *LinksHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /links", h.create)
 	mux.HandleFunc("GET /{code}", h.redirect)
+	mux.HandleFunc("GET /links/{code}", h.stats)
 }
 
 type createRequest struct {
@@ -28,9 +29,10 @@ type createRequest struct {
 }
 
 type linkResponse struct {
-	ShortCode string    `json:"short_code"`
-	LongURL   string    `json:"long_url"`
-	CreatedAt time.Time `json:"created_at"`
+	ShortCode  string    `json:"short_code"`
+	LongURL    string    `json:"long_url"`
+	CreatedAt  time.Time `json:"created_at"`
+	ClickCount int64     `json:"click_count"`
 }
 
 func (h *LinksHandler) create(w http.ResponseWriter, r *http.Request) {
@@ -81,4 +83,27 @@ func (h *LinksHandler) redirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, l.LongURL, http.StatusFound)
+}
+
+func (h *LinksHandler) stats(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+
+	l, err := h.service.Stats(r.Context(), code)
+	if err != nil {
+		if errors.Is(err, link.ErrNotFound) {
+			writeError(w, http.StatusNotFound, codeNotFound, "link not found")
+			return
+		}
+		slog.Error("link stats failed", "request_id", requestID(w), "code", code, "error", err)
+		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(linkResponse{
+		ShortCode:  l.ShortCode,
+		LongURL:    l.LongURL,
+		CreatedAt:  l.CreatedAt,
+		ClickCount: l.ClickCount,
+	})
 }

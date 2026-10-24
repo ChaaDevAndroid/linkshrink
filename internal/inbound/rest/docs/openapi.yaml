@@ -1,18 +1,29 @@
 openapi: 3.0.3
 info:
   title: LinkShrink API
-  version: 0.1.0
-  description: URL shortener. Create a short link, then follow it to be redirected.
+  version: 0.2.0
+  description: URL shortener. Create a short link, follow it to be redirected, and read its click count.
 servers:
   - url: /
+tags:
+  - name: Links
+    description: Create short links, follow them, and read their statistics
+  - name: System
+    description: Service health
+  - name: Dev tools
+    description: Only available when ENABLE_DOCS=true. Not part of the real API.
 paths:
   /health:
     get:
+      tags: [System]
       summary: Health check
       operationId: health
       responses:
         "200":
           description: Service is up
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
           content:
             text/plain:
               schema:
@@ -20,6 +31,7 @@ paths:
                 example: LinkShrink is alive
   /links:
     post:
+      tags: [Links]
       summary: Create a short link
       operationId: createLink
       requestBody:
@@ -31,53 +43,55 @@ paths:
       responses:
         "201":
           description: Link created
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Link"
         "400":
-          description: Malformed JSON (code invalid_json)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "413":
-          description: Request body larger than 1 MB (code body_too_large)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
-          description: URL is not a valid http or https URL (code invalid_url)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "500":
-          description: Internal server error (code internal_error)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/InvalidJSON"
         "405":
-          description: Wrong HTTP method for this path (code method_not_allowed)
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          $ref: "#/components/responses/InvalidURL"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /links/{code}:
+    get:
+      tags: [Links]
+      summary: Get a link and its click count
+      description: Returns the link's details. Reading statistics does NOT count as a visit.
+      operationId: getLinkStats
+      parameters:
+        - $ref: "#/components/parameters/Code"
+      responses:
+        "200":
+          description: The link and its click count
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/Link"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /{code}:
     get:
+      tags: [Links]
       summary: Follow a short link
-      description: Redirects to the original URL. The "Try it out" button can't show this
-        properly, because the browser follows the redirect itself. Use curl -i instead.
+      description: Redirects to the original URL and records a visit. The "Try it out" button
+        can't demonstrate this, because the browser follows the redirect itself and then fails
+        with "Failed to fetch". Use POST /docs/run under Dev tools, or curl -i.
       operationId: redirect
       parameters:
-        - name: code
-          in: path
-          required: true
-          schema:
-            type: string
-            example: XzsS28
+        - $ref: "#/components/parameters/Code"
       responses:
         "302":
           description: Redirect to the original URL
@@ -86,25 +100,19 @@ paths:
               schema:
                 type: string
                 example: https://example.com
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
         "404":
-          description: Unknown short code (code not_found)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/NotFound"
         "500":
-          description: Internal server error (code internal_error)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          $ref: "#/components/responses/InternalError"
   /docs/run:
     post:
       tags: [Dev tools]
       summary: "Dev only: run any request against this API, like curl -i"
       description: Not part of the real API. Sends the request you describe through the full
         server (router and middleware) and returns the raw response. The status line,
-        headers and body are shown in the response body below.
+        headers and body are shown in the response text.
       operationId: devRun
       requestBody:
         required: true
@@ -126,6 +134,116 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 components:
+  parameters:
+    Code:
+      name: code
+      in: path
+      required: true
+      description: The short code of the link
+      schema:
+        type: string
+        example: XzsS28
+  headers:
+    RequestID:
+      description: Identifier of this request. Also appears in the server logs and in error bodies.
+      schema:
+        type: string
+        example: 9f86d081884c7d65
+  responses:
+    InvalidJSON:
+      description: Request body is not valid JSON (code invalid_json)
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              status: 400
+              code: invalid_json
+              message: request body must be valid JSON
+              request_id: 9f86d081884c7d65
+    MethodNotAllowed:
+      description: Wrong HTTP method for this path (code method_not_allowed)
+      headers:
+        Allow:
+          schema:
+            type: string
+            example: POST
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              status: 405
+              code: method_not_allowed
+              message: Method Not Allowed
+              request_id: 9f86d081884c7d65
+    BodyTooLarge:
+      description: Request body larger than 1 MB (code body_too_large)
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              status: 413
+              code: body_too_large
+              message: request body too large
+              request_id: 9f86d081884c7d65
+    InvalidURL:
+      description: URL is not a valid http or https URL (code invalid_url)
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              status: 422
+              code: invalid_url
+              message: url must be a valid http or https URL
+              request_id: 9f86d081884c7d65
+    NotFound:
+      description: Unknown short code (code not_found)
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              status: 404
+              code: not_found
+              message: link not found
+              request_id: 9f86d081884c7d65
+    InternalError:
+      description: Unexpected server error (code internal_error)
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              status: 500
+              code: internal_error
+              message: internal server error
+              request_id: 9f86d081884c7d65
   schemas:
     CreateRequest:
       type: object
@@ -146,20 +264,10 @@ components:
         created_at:
           type: string
           format: date-time
-    RunRequest:
-      type: object
-      required: [method, path]
-      properties:
-        method:
-          type: string
-          example: DELETE
-        path:
-          type: string
-          example: /links
-        body:
-          type: string
-          description: Optional request body, as a string.
-          example: ""
+        click_count:
+          type: integer
+          format: int64
+          example: 2
     ErrorResponse:
       type: object
       properties:
@@ -178,3 +286,17 @@ components:
             request_id:
               type: string
               example: 9f86d081884c7d65
+    RunRequest:
+      type: object
+      required: [method, path]
+      properties:
+        method:
+          type: string
+          example: GET
+        path:
+          type: string
+          example: /links/XzsS28
+        body:
+          type: string
+          description: Optional request body, as a string. Inner quotes must be escaped.
+          example: ""

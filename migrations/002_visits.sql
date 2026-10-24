@@ -1,0 +1,9 @@
+ALTER TABLE links ADD COLUMN IF NOT EXISTS click_count BIGINT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS visits (
+  id         BIGSERIAL PRIMARY KEY,
+  short_code TEXT NOT NULL REFERENCES links(short_code) ON DELETE CASCADE,
+  visited_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_visits_short_code ON visits(short_code);

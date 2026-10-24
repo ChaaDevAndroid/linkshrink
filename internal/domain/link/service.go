@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"net/url"
 	"time"
@@ -49,6 +50,19 @@ func (s *service) Resolve(ctx context.Context, code string) (Link, error) {
 	l, err := s.repo.FindByCode(ctx, code)
 	if err != nil {
 		return Link{}, fmt.Errorf("resolve link: %w", err)
+	}
+
+	// A failed counter must not break the redirect: log it and carry on.
+	if err := s.repo.RecordVisit(ctx, code); err != nil {
+		slog.Warn("record visit failed", "code", code, "error", err)
+	}
+	return l, nil
+}
+
+func (s *service) Stats(ctx context.Context, code string) (Link, error) {
+	l, err := s.repo.FindByCode(ctx, code)
+	if err != nil {
+		return Link{}, fmt.Errorf("link stats: %w", err)
 	}
 	return l, nil
 }

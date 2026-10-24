@@ -12,6 +12,12 @@ type Service interface {
 	// Errors:
 	//   - ErrNotFound if no link has that code.
 	Resolve(ctx context.Context, code string) (Link, error)
+
+	// Stats finds a link by its short code WITHOUT recording a visit.
+	//
+	// Errors:
+	//   - ErrNotFound if no link has that code.
+	Stats(ctx context.Context, code string) (Link, error)
 }
 
 // Repository is the outbound port: what the domain needs from storage.
@@ -24,4 +30,10 @@ type Repository interface {
 	// Errors:
 	//   - ErrNotFound if no link has that code.
 	FindByCode(ctx context.Context, code string) (Link, error)
+
+	// RecordVisit atomically increments the link's click count and logs the visit.
+	//
+	// Errors:
+	//   - ErrNotFound if no link has that code.
+	RecordVisit(ctx context.Context, code string) error
 }

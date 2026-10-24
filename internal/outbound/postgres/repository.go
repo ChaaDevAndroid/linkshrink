@@ -40,9 +40,9 @@ func (r *repository) Save(ctx context.Context, l link.Link) error {
 func (r *repository) FindByCode(ctx context.Context, code string) (link.Link, error) {
 	var l link.Link
 	err := r.db.QueryRowContext(ctx,
-		"SELECT short_code, long_url, created_at FROM links WHERE short_code = $1",
+		"SELECT short_code, long_url, created_at, click_count FROM links WHERE short_code = $1",
 		code,
-	).Scan(&l.ShortCode, &l.LongURL, &l.CreatedAt)
+	).Scan(&l.ShortCode, &l.LongURL, &l.CreatedAt, &l.ClickCount)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return link.Link{}, link.ErrNotFound
@@ -50,4 +50,32 @@ func (r *repository) FindByCode(ctx context.Context, code string) (link.Link, er
 		return link.Link{}, fmt.Errorf("find link: %w", err)
 	}
 	return l, nil
+}
+
+func (r *repository) RecordVisit(ctx context.Context, code string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() // safety net: a no-op after a successful Commit
+
+	res, err := tx.ExecContext(ctx,
+		"UPDATE links SET click_count = click_count + 1 WHERE short_code = $1", code)
+	if err != nil {
+		return fmt.Errorf("increment click count: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return link.ErrNotFound
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO visits (short_code) VALUES ($1)", code); err != nil {
+		return fmt.Errorf("insert visit: %w", err)
+	}
+
+	return tx.Commit()
 }
