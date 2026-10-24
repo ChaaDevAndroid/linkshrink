@@ -52,7 +52,7 @@ func (h *LinksHandler) create(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnprocessableEntity, codeInvalidURL, "url must be a valid http or https URL")
 			return
 		}
-		slog.Error("create link failed", "error", err)
+		slog.Error("create link failed", "request_id", requestID(w), "error", err)
 		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
 		return
 	}
@@ -75,7 +75,7 @@ func (h *LinksHandler) redirect(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, codeNotFound, "link not found")
 			return
 		}
-		slog.Error("resolve link failed", "code", code, "error", err)
+		slog.Error("resolve link failed", "request_id", requestID(w), "code", code, "error", err)
 		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
 		return
 	}

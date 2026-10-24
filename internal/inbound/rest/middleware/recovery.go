@@ -14,6 +14,7 @@ func Recovery(next http.Handler) http.Handler {
 					panic(rec) // deliberate abort: let net/http handle it
 				}
 				slog.Error("panic recovered",
+					"request_id", RequestIDFromContext(r.Context()),
 					"error", rec,
 					"method", r.Method,
 					"path", r.URL.Path,

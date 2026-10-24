@@ -13,12 +13,20 @@ func New(linkService link.Service, enableDocs bool) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", healthCheck)
-	if enableDocs {
-		docs.Register(mux)
-	}
 	api.NewLinksHandler(linkService).Register(mux)
 
-	return middleware.Logging(middleware.Recovery(mux))
+	// root is assigned below. The docs runner needs the final handler (with middleware),
+	// but that handler needs mux, which docs.Register is still filling in.
+	// The closure reads root at request time, so the order resolves itself.
+	var root http.Handler
+	if enableDocs {
+		docs.Register(mux, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			root.ServeHTTP(w, r)
+		}))
+	}
+
+	root = middleware.RequestID(middleware.Logging(middleware.JSONErrors(middleware.Recovery(mux))))
+	return root
 }
 
 func healthCheck(w http.ResponseWriter, r *http.Request) {

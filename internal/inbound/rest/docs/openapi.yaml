@@ -59,6 +59,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "405":
+          description: Wrong HTTP method for this path (code method_not_allowed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /{code}:
     get:
       summary: Follow a short link
@@ -86,7 +92,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "500":
           description: Internal server error (code internal_error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /docs/run:
+    post:
+      tags: [Dev tools]
+      summary: "Dev only: run any request against this API, like curl -i"
+      description: Not part of the real API. Sends the request you describe through the full
+        server (router and middleware) and returns the raw response. The status line,
+        headers and body are shown in the response body below.
+      operationId: devRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunRequest"
+      responses:
+        "200":
+          description: The raw response of the request you described
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: Invalid runner input
           content:
             application/json:
               schema:
@@ -112,6 +146,20 @@ components:
         created_at:
           type: string
           format: date-time
+    RunRequest:
+      type: object
+      required: [method, path]
+      properties:
+        method:
+          type: string
+          example: DELETE
+        path:
+          type: string
+          example: /links
+        body:
+          type: string
+          description: Optional request body, as a string.
+          example: ""
     ErrorResponse:
       type: object
       properties:
@@ -127,3 +175,6 @@ components:
             message:
               type: string
               example: url must be a valid http or https URL
+            request_id:
+              type: string
+              example: 9f86d081884c7d65
