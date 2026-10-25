@@ -27,6 +27,10 @@ func main() {
 func run() error {
 	cfg := config.Load()
 
+	if err := postgres.Migrate(cfg.DBURL); err != nil {
+		return fmt.Errorf("migrations: %w", err)
+	}
+
 	db, err := postgres.NewDB(cfg.DBURL)
 	if err != nil {
 		return fmt.Errorf("connect database: %w", err)
