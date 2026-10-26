@@ -13,6 +13,9 @@ import (
 const (
 	charset         = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	maxCodeAttempts = 5
+
+	// MaxPageSize is the largest page a caller may ask for.
+	MaxPageSize = 100
 )
 
 type service struct {
@@ -65,6 +68,27 @@ func (s *service) Stats(ctx context.Context, code string) (Link, error) {
 		return Link{}, fmt.Errorf("link stats: %w", err)
 	}
 	return l, nil
+}
+
+func (s *service) List(ctx context.Context, limit int, after *Cursor) (Page, error) {
+	if limit < 1 || limit > MaxPageSize {
+		return Page{}, ErrInvalidLimit
+	}
+
+	// Ask for one extra row. If it comes back, there is a next page,
+	// and we never need a separate COUNT query.
+	links, err := s.repo.List(ctx, after, limit+1)
+	if err != nil {
+		return Page{}, fmt.Errorf("list links: %w", err)
+	}
+
+	page := Page{Links: links}
+	if len(links) > limit {
+		page.Links = links[:limit]
+		last := page.Links[limit-1]
+		page.Next = &Cursor{CreatedAt: last.CreatedAt, ShortCode: last.ShortCode}
+	}
+	return page, nil
 }
 
 func validateURL(raw string) error {

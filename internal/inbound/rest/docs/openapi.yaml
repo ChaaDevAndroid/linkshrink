@@ -1,13 +1,13 @@
 openapi: 3.0.3
 info:
   title: LinkShrink API
-  version: 0.2.0
-  description: URL shortener. Create a short link, follow it to be redirected, and read its click count.
+  version: 0.3.0
+  description: URL shortener. Create a short link, follow it to be redirected, list links, and read click counts.
 servers:
   - url: /
 tags:
   - name: Links
-    description: Create short links, follow them, and read their statistics
+    description: Create, list and inspect short links
   - name: System
     description: Service health
   - name: Dev tools
@@ -29,7 +29,7 @@ paths:
               schema:
                 type: string
                 example: LinkShrink is alive
-  /links:
+  /v1/links:
     post:
       tags: [Links]
       summary: Create a short link
@@ -60,7 +60,33 @@ paths:
           $ref: "#/components/responses/InvalidURL"
         "500":
           $ref: "#/components/responses/InternalError"
-  /links/{code}:
+    get:
+      tags: [Links]
+      summary: List links, newest first
+      description: Keyset pagination. Pass the next_cursor of a page as the cursor of the next
+        request, unchanged. next_cursor is null on the last page. The cursor is opaque, so do not
+        build or parse it.
+      operationId: listLinks
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of links
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkPage"
+        "400":
+          $ref: "#/components/responses/InvalidQuery"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/links/{code}:
     get:
       tags: [Links]
       summary: Get a link and its click count
@@ -143,6 +169,23 @@ components:
       schema:
         type: string
         example: XzsS28
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size, from 1 to 100
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque position from the previous page's next_cursor
+      schema:
+        type: string
   headers:
     RequestID:
       description: Identifier of this request. Also appears in the server logs and in error bodies.
@@ -165,13 +208,28 @@ components:
               code: invalid_json
               message: request body must be valid JSON
               request_id: 9f86d081884c7d65
+    InvalidQuery:
+      description: A query parameter is invalid (code invalid_limit or invalid_cursor)
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              status: 400
+              code: invalid_limit
+              message: limit must be an integer between 1 and 100
+              request_id: 9f86d081884c7d65
     MethodNotAllowed:
       description: Wrong HTTP method for this path (code method_not_allowed)
       headers:
         Allow:
           schema:
             type: string
-            example: POST
+            example: GET, HEAD, POST
         X-Request-ID:
           $ref: "#/components/headers/RequestID"
       content:
@@ -268,6 +326,18 @@ components:
           type: integer
           format: int64
           example: 2
+    LinkPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Link"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Pass this as the cursor of the next request. Null on the last page.
+          example: MjAyNi0xMC0yNVQxODo0NDo1MC4xMjM0NTZafFh6c1MyOA
     ErrorResponse:
       type: object
       properties:
@@ -295,7 +365,7 @@ components:
           example: GET
         path:
           type: string
-          example: /links/XzsS28
+          example: /v1/links/XzsS28
         body:
           type: string
           description: Optional request body, as a string. Inner quotes must be escaped.

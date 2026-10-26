@@ -3,12 +3,16 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"golinkshrink.com/linkshrink/internal/domain/link"
 )
+
+const defaultPageSize = 20
 
 type LinksHandler struct {
 	service link.Service
@@ -19,9 +23,10 @@ func NewLinksHandler(service link.Service) *LinksHandler {
 }
 
 func (h *LinksHandler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /links", h.create)
+	mux.HandleFunc("POST /v1/links", h.create)
+	mux.HandleFunc("GET /v1/links", h.list)
+	mux.HandleFunc("GET /v1/links/{code}", h.stats)
 	mux.HandleFunc("GET /{code}", h.redirect)
-	mux.HandleFunc("GET /links/{code}", h.stats)
 }
 
 type createRequest struct {
@@ -33,6 +38,20 @@ type linkResponse struct {
 	LongURL    string    `json:"long_url"`
 	CreatedAt  time.Time `json:"created_at"`
 	ClickCount int64     `json:"click_count"`
+}
+
+type listResponse struct {
+	Items      []linkResponse `json:"items"`
+	NextCursor *string        `json:"next_cursor"`
+}
+
+func toResponse(l link.Link) linkResponse {
+	return linkResponse{
+		ShortCode:  l.ShortCode,
+		LongURL:    l.LongURL,
+		CreatedAt:  l.CreatedAt,
+		ClickCount: l.ClickCount,
+	}
 }
 
 func (h *LinksHandler) create(w http.ResponseWriter, r *http.Request) {
@@ -61,28 +80,56 @@ func (h *LinksHandler) create(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(linkResponse{
-		ShortCode: l.ShortCode,
-		LongURL:   l.LongURL,
-		CreatedAt: l.CreatedAt,
-	})
+	json.NewEncoder(w).Encode(toResponse(l))
 }
 
-func (h *LinksHandler) redirect(w http.ResponseWriter, r *http.Request) {
-	code := r.PathValue("code")
+func (h *LinksHandler) list(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
 
-	l, err := h.service.Resolve(r.Context(), code)
-	if err != nil {
-		if errors.Is(err, link.ErrNotFound) {
-			writeError(w, http.StatusNotFound, codeNotFound, "link not found")
+	limit := defaultPageSize
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, codeInvalidLimit,
+				fmt.Sprintf("limit must be an integer between 1 and %d", link.MaxPageSize))
 			return
 		}
-		slog.Error("resolve link failed", "request_id", requestID(w), "code", code, "error", err)
+		limit = n
+	}
+
+	var after *link.Cursor
+	if v := q.Get("cursor"); v != "" {
+		c, err := decodeCursor(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, codeInvalidCursor, "cursor is not valid")
+			return
+		}
+		after = c
+	}
+
+	page, err := h.service.List(r.Context(), limit, after)
+	if err != nil {
+		if errors.Is(err, link.ErrInvalidLimit) {
+			writeError(w, http.StatusBadRequest, codeInvalidLimit,
+				fmt.Sprintf("limit must be an integer between 1 and %d", link.MaxPageSize))
+			return
+		}
+		slog.Error("list links failed", "request_id", requestID(w), "error", err)
 		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
 		return
 	}
 
-	http.Redirect(w, r, l.LongURL, http.StatusFound)
+	resp := listResponse{Items: make([]linkResponse, 0, len(page.Links))}
+	for _, l := range page.Links {
+		resp.Items = append(resp.Items, toResponse(l))
+	}
+	if page.Next != nil {
+		next := encodeCursor(*page.Next)
+		resp.NextCursor = &next
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (h *LinksHandler) stats(w http.ResponseWriter, r *http.Request) {
@@ -100,10 +147,22 @@ func (h *LinksHandler) stats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(linkResponse{
-		ShortCode:  l.ShortCode,
-		LongURL:    l.LongURL,
-		CreatedAt:  l.CreatedAt,
-		ClickCount: l.ClickCount,
-	})
+	json.NewEncoder(w).Encode(toResponse(l))
+}
+
+func (h *LinksHandler) redirect(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+
+	l, err := h.service.Resolve(r.Context(), code)
+	if err != nil {
+		if errors.Is(err, link.ErrNotFound) {
+			writeError(w, http.StatusNotFound, codeNotFound, "link not found")
+			return
+		}
+		slog.Error("resolve link failed", "request_id", requestID(w), "code", code, "error", err)
+		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
+		return
+	}
+
+	http.Redirect(w, r, l.LongURL, http.StatusFound)
 }

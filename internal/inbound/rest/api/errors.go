@@ -11,11 +11,13 @@ const requestIDHeader = "X-Request-ID"
 
 // Stable, machine-readable error codes. Clients should branch on these, not on messages.
 const (
-	codeInvalidJSON  = "invalid_json"
-	codeBodyTooLarge = "body_too_large"
-	codeInvalidURL   = "invalid_url"
-	codeNotFound     = "not_found"
-	codeInternal     = "internal_error"
+	codeInvalidJSON   = "invalid_json"
+	codeBodyTooLarge  = "body_too_large"
+	codeInvalidURL    = "invalid_url"
+	codeInvalidLimit  = "invalid_limit"
+	codeInvalidCursor = "invalid_cursor"
+	codeNotFound      = "not_found"
+	codeInternal      = "internal_error"
 )
 
 type errorBody struct {

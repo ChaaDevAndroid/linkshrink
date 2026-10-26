@@ -79,3 +79,38 @@ func (r *repository) RecordVisit(ctx context.Context, code string) error {
 
 	return tx.Commit()
 }
+
+func (r *repository) List(ctx context.Context, after *link.Cursor, limit int) ([]link.Link, error) {
+	const selectLinks = "SELECT short_code, long_url, created_at, click_count FROM links"
+	const orderNewest = " ORDER BY created_at DESC, short_code DESC"
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if after == nil {
+		rows, err = r.db.QueryContext(ctx, selectLinks+orderNewest+" LIMIT $1", limit)
+	} else {
+		rows, err = r.db.QueryContext(ctx,
+			selectLinks+" WHERE (created_at, short_code) < ($1, $2)"+orderNewest+" LIMIT $3",
+			after.CreatedAt, after.ShortCode, limit,
+		)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list links: %w", err)
+	}
+	defer rows.Close()
+
+	links := []link.Link{}
+	for rows.Next() {
+		var l link.Link
+		if err := rows.Scan(&l.ShortCode, &l.LongURL, &l.CreatedAt, &l.ClickCount); err != nil {
+			return nil, fmt.Errorf("scan link: %w", err)
+		}
+		links = append(links, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list links iteration: %w", err)
+	}
+	return links, nil
+}
