@@ -194,7 +194,7 @@ components:
         example: 9f86d081884c7d65
   responses:
     InvalidJSON:
-      description: Request body is not valid JSON (code invalid_json)
+      description: Request body is empty, malformed, has an unknown field or a field of the wrong type (code invalid_json)
       headers:
         X-Request-ID:
           $ref: "#/components/headers/RequestID"
@@ -202,12 +202,27 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
-          example:
-            error:
-              status: 400
-              code: invalid_json
-              message: request body must be valid JSON
-              request_id: 9f86d081884c7d65
+          examples:
+            empty:
+              summary: Empty body
+              value:
+                error: {status: 400, code: invalid_json, message: request body must not be empty, request_id: 9f86d081884c7d65}
+            syntax:
+              summary: Broken syntax
+              value:
+                error: {status: 400, code: invalid_json, message: body is not valid JSON (at position 7), request_id: 9f86d081884c7d65}
+            wrongType:
+              summary: Wrong field type
+              value:
+                error: {status: 400, code: invalid_json, message: 'field "url" has the wrong type, expected string', request_id: 9f86d081884c7d65}
+            unknownField:
+              summary: Unknown field
+              value:
+                error: {status: 400, code: invalid_json, message: 'unknown field "urll"', request_id: 9f86d081884c7d65}
+            trailing:
+              summary: Data after the JSON object
+              value:
+                error: {status: 400, code: invalid_json, message: body must contain a single JSON object, request_id: 9f86d081884c7d65}
     InvalidQuery:
       description: A query parameter is invalid (code invalid_limit or invalid_cursor)
       headers:
@@ -306,9 +321,11 @@ components:
     CreateRequest:
       type: object
       required: [url]
+      additionalProperties: false   # documents the strict decoding: unknown fields are rejected
       properties:
         url:
           type: string
+          maxLength: 2048
           example: https://example.com
     Link:
       type: object

@@ -4,18 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"golinkshrink.com/linkshrink/internal/inbound/rest/httperr"
 )
-
-type errorBody struct {
-	Error errorDetail `json:"error"`
-}
-
-type errorDetail struct {
-	Status    int    `json:"status"`
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	RequestID string `json:"request_id,omitempty"`
-}
 
 // errorRewriter replaces plain-text error responses (written by the router or by
 // http.Error) with the standard JSON error format. Responses that are already JSON,
@@ -32,18 +23,20 @@ func (e *errorRewriter) WriteHeader(status int) {
 	}
 	e.wroteHeader = true
 
+	// Our own handlers already send JSON through httperr.Write; only foreign errors
+	// (router 404/405, http.Error) are plain text and need rewriting.
 	isJSON := strings.HasPrefix(e.Header().Get("Content-Type"), "application/json")
 	if status >= 400 && !isJSON {
 		e.rewriting = true
 		e.Header().Set("Content-Type", "application/json")
-		e.Header().Del("Content-Length")
+		e.Header().Del("Content-Length") // the JSON body has a different length than the original text
 		e.ResponseWriter.WriteHeader(status)
 
-		body := errorBody{Error: errorDetail{
+		body := httperr.Body{Error: httperr.Detail{
 			Status:    status,
-			Code:      codeFor(status),
+			Code:      httperr.CodeFor(status),
 			Message:   http.StatusText(status),
-			RequestID: e.Header().Get(RequestIDHeader),
+			RequestID: e.Header().Get(httperr.RequestIDHeader),
 		}}
 		json.NewEncoder(e.ResponseWriter).Encode(body)
 		return
@@ -56,7 +49,7 @@ func (e *errorRewriter) Write(b []byte) (int, error) {
 		e.WriteHeader(http.StatusOK)
 	}
 	if e.rewriting {
-		return len(b), nil // drop the original plain-text body
+		return len(b), nil // drop the original plain-text body: we already sent our JSON
 	}
 	return e.ResponseWriter.Write(b)
 }
@@ -64,21 +57,6 @@ func (e *errorRewriter) Write(b []byte) (int, error) {
 // Unwrap lets http.ResponseController reach the original writer underneath.
 func (e *errorRewriter) Unwrap() http.ResponseWriter {
 	return e.ResponseWriter
-}
-
-func codeFor(status int) string {
-	switch status {
-	case http.StatusBadRequest:
-		return "bad_request"
-	case http.StatusNotFound:
-		return "not_found"
-	case http.StatusMethodNotAllowed:
-		return "method_not_allowed"
-	case http.StatusInternalServerError:
-		return "internal_error"
-	default:
-		return "error"
-	}
 }
 
 func JSONErrors(next http.Handler) http.Handler {

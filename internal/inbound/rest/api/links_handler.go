@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"golinkshrink.com/linkshrink/internal/domain/link"
+	"golinkshrink.com/linkshrink/internal/inbound/rest/httperr"
 )
 
 const defaultPageSize = 20
@@ -55,26 +56,24 @@ func toResponse(l link.Link) linkResponse {
 }
 
 func (h *LinksHandler) create(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // cap the body at 1 MB
-
 	var req createRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			writeError(w, http.StatusRequestEntityTooLarge, codeBodyTooLarge, "request body too large")
-			return
-		}
-		writeError(w, http.StatusBadRequest, codeInvalidJSON, "request body must be valid JSON")
+	// Shape errors (syntax, types, unknown fields, size) are all handled inside decodeJSON.
+	// If it returns false, the error response is already sent: we only have to stop.
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
 	l, err := h.service.Create(r.Context(), req.URL)
 	if err != nil {
+		// Business-rule error from the domain: 422 = "well-formed request, unacceptable value".
 		if errors.Is(err, link.ErrInvalidURL) {
-			writeError(w, http.StatusUnprocessableEntity, codeInvalidURL, "url must be a valid http or https URL")
+			writeError(w, http.StatusUnprocessableEntity, httperr.CodeInvalidURL,
+				fmt.Sprintf("url must be a valid http or https URL of at most %d characters", link.MaxURLLength))
 			return
 		}
+		// Anything else is our fault: log the detail, send a generic message to the client.
 		slog.Error("create link failed", "request_id", requestID(w), "error", err)
-		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
+		writeError(w, http.StatusInternalServerError, httperr.CodeInternal, "internal server error")
 		return
 	}
 
@@ -90,7 +89,7 @@ func (h *LinksHandler) list(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, codeInvalidLimit,
+			writeError(w, http.StatusBadRequest, httperr.CodeInvalidLimit,
 				fmt.Sprintf("limit must be an integer between 1 and %d", link.MaxPageSize))
 			return
 		}
@@ -101,7 +100,7 @@ func (h *LinksHandler) list(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("cursor"); v != "" {
 		c, err := decodeCursor(v)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, codeInvalidCursor, "cursor is not valid")
+			writeError(w, http.StatusBadRequest, httperr.CodeInvalidCursor, "cursor is not valid")
 			return
 		}
 		after = c
@@ -110,12 +109,12 @@ func (h *LinksHandler) list(w http.ResponseWriter, r *http.Request) {
 	page, err := h.service.List(r.Context(), limit, after)
 	if err != nil {
 		if errors.Is(err, link.ErrInvalidLimit) {
-			writeError(w, http.StatusBadRequest, codeInvalidLimit,
+			writeError(w, http.StatusBadRequest, httperr.CodeInvalidLimit,
 				fmt.Sprintf("limit must be an integer between 1 and %d", link.MaxPageSize))
 			return
 		}
 		slog.Error("list links failed", "request_id", requestID(w), "error", err)
-		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
+		writeError(w, http.StatusInternalServerError, httperr.CodeInternal, "internal server error")
 		return
 	}
 
@@ -138,11 +137,11 @@ func (h *LinksHandler) stats(w http.ResponseWriter, r *http.Request) {
 	l, err := h.service.Stats(r.Context(), code)
 	if err != nil {
 		if errors.Is(err, link.ErrNotFound) {
-			writeError(w, http.StatusNotFound, codeNotFound, "link not found")
+			writeError(w, http.StatusNotFound, httperr.CodeNotFound, "link not found")
 			return
 		}
 		slog.Error("link stats failed", "request_id", requestID(w), "code", code, "error", err)
-		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
+		writeError(w, http.StatusInternalServerError, httperr.CodeInternal, "internal server error")
 		return
 	}
 
@@ -156,11 +155,11 @@ func (h *LinksHandler) redirect(w http.ResponseWriter, r *http.Request) {
 	l, err := h.service.Resolve(r.Context(), code)
 	if err != nil {
 		if errors.Is(err, link.ErrNotFound) {
-			writeError(w, http.StatusNotFound, codeNotFound, "link not found")
+			writeError(w, http.StatusNotFound, httperr.CodeNotFound, "link not found")
 			return
 		}
 		slog.Error("resolve link failed", "request_id", requestID(w), "code", code, "error", err)
-		writeError(w, http.StatusInternalServerError, codeInternal, "internal server error")
+		writeError(w, http.StatusInternalServerError, httperr.CodeInternal, "internal server error")
 		return
 	}
 

@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+
+	"golinkshrink.com/linkshrink/internal/inbound/rest/httperr"
 )
 
-const RequestIDHeader = "X-Request-ID"
+const RequestIDHeader = httperr.RequestIDHeader
 
 // ctxKey is a private type, so no other package can collide with our context key.
 type ctxKey struct{}
