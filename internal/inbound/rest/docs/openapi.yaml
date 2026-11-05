@@ -317,6 +317,21 @@ components:
               code: internal_error
               message: internal server error
               request_id: 9f86d081884c7d65
+    Timeout:
+      description: The server took too long to answer, usually a slow database (code timeout). Safe to retry.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              status: 503
+              code: timeout
+              message: the server took too long to answer, please try again
+              request_id: 9f86d081884c7d65
   schemas:
     CreateRequest:
       type: object

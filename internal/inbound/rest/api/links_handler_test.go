@@ -353,3 +353,53 @@ func TestRedirect_Success(t *testing.T) {
 		t.Errorf("Location = %q, want %q", loc, sampleLink.LongURL)
 	}
 }
+
+// ---------- context errors, on every endpoint ----------
+
+func TestContextErrors_AllEndpoints(t *testing.T) {
+	endpoints := []struct{ name, method, path, body string }{
+		{"create", http.MethodPost, "/v1/links", `{"url":"https://a.com"}`},
+		{"list", http.MethodGet, "/v1/links", ""},
+		{"stats", http.MethodGet, "/v1/links/abc123", ""},
+		{"redirect", http.MethodGet, "/abc123", ""},
+	}
+	failures := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		// Wrapped with %w like the real service does: the mapping must see through it.
+		{"deadline exceeded", fmt.Errorf("op: %w", context.DeadlineExceeded), 503, httperr.CodeTimeout},
+		{"client canceled", fmt.Errorf("op: %w", context.Canceled), 499, httperr.CodeCanceled},
+		{"real failure", errBoom, 500, httperr.CodeInternal},
+	}
+
+	for _, ep := range endpoints {
+		for _, f := range failures {
+			t.Run(ep.name+"/"+f.name, func(t *testing.T) {
+				one := func(context.Context, string) (link.Link, error) { return link.Link{}, f.err }
+				svc := &fakeService{
+					create:  one,
+					resolve: one,
+					stats:   one,
+					list: func(context.Context, int, *link.Cursor) (link.Page, error) {
+						return link.Page{}, f.err
+					},
+				}
+
+				rec := do(svc, ep.method, ep.path, ep.body)
+
+				if rec.Code != f.wantStatus {
+					t.Fatalf("status = %d, want %d", rec.Code, f.wantStatus)
+				}
+				if e := errorOf(t, rec); e.Code != f.wantCode {
+					t.Errorf("code = %q, want %q", e.Code, f.wantCode)
+				}
+				if strings.Contains(rec.Body.String(), "secret internal detail") {
+					t.Error("the response leaks the internal error")
+				}
+			})
+		}
+	}
+}

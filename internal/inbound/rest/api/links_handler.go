@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -57,23 +56,19 @@ func toResponse(l link.Link) linkResponse {
 
 func (h *LinksHandler) create(w http.ResponseWriter, r *http.Request) {
 	var req createRequest
-	// Shape errors (syntax, types, unknown fields, size) are all handled inside decodeJSON.
-	// If it returns false, the error response is already sent: we only have to stop.
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 
 	l, err := h.service.Create(r.Context(), req.URL)
 	if err != nil {
-		// Business-rule error from the domain: 422 = "well-formed request, unacceptable value".
 		if errors.Is(err, link.ErrInvalidURL) {
 			writeError(w, http.StatusUnprocessableEntity, httperr.CodeInvalidURL,
 				fmt.Sprintf("url must be a valid http or https URL of at most %d characters", link.MaxURLLength))
 			return
 		}
-		// Anything else is our fault: log the detail, send a generic message to the client.
-		slog.Error("create link failed", "request_id", requestID(w), "error", err)
-		writeError(w, http.StatusInternalServerError, httperr.CodeInternal, "internal server error")
+		// Not a client mistake: writeInternal picks between 503, 499 and 500.
+		writeInternal(w, r, "create link failed", err)
 		return
 	}
 
@@ -113,8 +108,7 @@ func (h *LinksHandler) list(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("limit must be an integer between 1 and %d", link.MaxPageSize))
 			return
 		}
-		slog.Error("list links failed", "request_id", requestID(w), "error", err)
-		writeError(w, http.StatusInternalServerError, httperr.CodeInternal, "internal server error")
+		writeInternal(w, r, "list links failed", err)
 		return
 	}
 
@@ -140,8 +134,7 @@ func (h *LinksHandler) stats(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, httperr.CodeNotFound, "link not found")
 			return
 		}
-		slog.Error("link stats failed", "request_id", requestID(w), "code", code, "error", err)
-		writeError(w, http.StatusInternalServerError, httperr.CodeInternal, "internal server error")
+		writeInternal(w, r, "link stats failed", err, "code", code)
 		return
 	}
 
@@ -158,8 +151,7 @@ func (h *LinksHandler) redirect(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, httperr.CodeNotFound, "link not found")
 			return
 		}
-		slog.Error("resolve link failed", "request_id", requestID(w), "code", code, "error", err)
-		writeError(w, http.StatusInternalServerError, httperr.CodeInternal, "internal server error")
+		writeInternal(w, r, "resolve link failed", err, "code", code)
 		return
 	}
 

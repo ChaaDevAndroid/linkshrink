@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"golinkshrink.com/linkshrink/internal/domain/link"
 	"golinkshrink.com/linkshrink/internal/inbound/rest/api"
@@ -9,7 +10,7 @@ import (
 	"golinkshrink.com/linkshrink/internal/inbound/rest/middleware"
 )
 
-func New(linkService link.Service, enableDocs bool) http.Handler {
+func New(linkService link.Service, enableDocs bool, requestTimeout time.Duration) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", healthCheck)
@@ -25,7 +26,10 @@ func New(linkService link.Service, enableDocs bool) http.Handler {
 		}))
 	}
 
-	root = middleware.RequestID(middleware.Logging(middleware.JSONErrors(middleware.Recovery(mux))))
+	// Read from the inside out: Timeout sets the deadline right next to the handlers,
+	// Recovery catches panics, JSONErrors rewrites plain-text errors, then Logging and RequestID.
+	root = middleware.RequestID(middleware.Logging(middleware.JSONErrors(
+		middleware.Recovery(middleware.Timeout(requestTimeout)(mux)))))
 	return root
 }
 

@@ -26,6 +26,8 @@ const (
 	CodeUnprocessable    = "unprocessable_entity"
 	CodeInternal         = "internal_error"
 	CodeUnknown          = "error"
+	CodeTimeout          = "timeout"
+	CodeCanceled         = "request_canceled"
 )
 
 type Body struct {

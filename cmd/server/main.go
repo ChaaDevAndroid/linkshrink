@@ -25,38 +25,49 @@ func main() {
 }
 
 func run() error {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
+	// Created FIRST, so Ctrl+C also interrupts a slow startup (the DB ping), not just the running server.
+	// ctx is cancelled by SIGINT (Ctrl+C) or SIGTERM (what `docker stop` and Kubernetes send).
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	if err := postgres.Migrate(cfg.DBURL); err != nil {
 		return fmt.Errorf("migrations: %w", err)
 	}
 
-	db, err := postgres.NewDB(cfg.DBURL)
+	db, err := postgres.NewDB(ctx, cfg.DBURL)
 	if err != nil {
 		return fmt.Errorf("connect database: %w", err)
 	}
+	// Deferred calls run last-in-first-out, after Shutdown below has returned:
+	// first we stop serving and let in-flight requests finish, THEN we close the pool.
+	// The reverse order would make those requests fail with "sql: database is closed".
 	defer db.Close()
 
 	repo := postgres.NewRepository(db)
 	svc := link.NewService(repo)
 
-	handler := server.New(svc, cfg.EnableDocs)
+	handler := server.New(svc, cfg.EnableDocs, cfg.RequestTimeout)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Derived, not hard-coded: the socket must stay open LONGER than the request
+		// deadline, otherwise the connection dies before we can send our 503 JSON.
+		WriteTimeout: cfg.RequestTimeout + 5*time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("server listening", "addr", srv.Addr)
+		// ListenAndServe always returns an error. ErrServerClosed is the NORMAL one after Shutdown.
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -66,10 +77,22 @@ func run() error {
 	case err := <-errCh:
 		return fmt.Errorf("server: %w", err)
 	case <-ctx.Done():
-		slog.Info("shutting down")
+		// Give the signal handling back to Go's default: a SECOND Ctrl+C now kills
+		// the process immediately, in case the graceful shutdown gets stuck.
+		stop()
+		slog.Info("shutting down", "timeout", cfg.ShutdownTimeout)
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// A NEW context from Background, not derived from ctx: ctx is already cancelled,
+	// and a cancelled context would make Shutdown give up instantly.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+
+	// Shutdown: stop accepting connections, close idle ones, wait for active requests to finish.
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		srv.Close() // out of time: cut the remaining connections instead of leaving them half-open
+		return fmt.Errorf("graceful shutdown failed, forced close: %w", err)
+	}
+	slog.Info("shutdown complete")
+	return nil
 }
