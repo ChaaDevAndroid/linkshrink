@@ -49,7 +49,10 @@ func run() error {
 	defer db.Close()
 
 	repo := postgres.NewRepository(db)
-	svc := link.NewService(repo)
+	// 4 workers: far below the pool of 25, so counting can never starve the real requests of connections.
+	// 1000 slots: absorbs a burst of about 1000 clicks while the workers catch up.
+	visits := link.NewAsyncRecorder(repo, 4, 1000)
+	svc := link.NewService(repo, link.WithVisitRecorder(visits))
 
 	handler := server.New(svc, cfg.EnableDocs, cfg.RequestTimeout)
 
@@ -88,11 +91,23 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 
-	// Shutdown: stop accepting connections, close idle ones, wait for active requests to finish.
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	// ORDER MATTERS. Three stages, each one needing the previous to be finished:
+	//   1. Shutdown: no more requests come in, in-flight ones finish. After this, nobody calls Record.
+	//   2. visits.Close: workers drain what is queued. They still need the database.
+	//   3. db.Close (deferred earlier, runs when run() returns): the database goes away last.
+	// Closing the recorder BEFORE stage 1 would reject visits from requests still running.
+	shutdownErr := srv.Shutdown(shutdownCtx)
+	if shutdownErr != nil {
 		srv.Close() // out of time: cut the remaining connections instead of leaving them half-open
-		return fmt.Errorf("graceful shutdown failed, forced close: %w", err)
 	}
-	slog.Info("shutdown complete")
+
+	if err := visits.Close(shutdownCtx); err != nil {
+		slog.Warn("visit queue not fully drained", "error", err)
+	}
+
+	if shutdownErr != nil {
+		return fmt.Errorf("graceful shutdown failed, forced close: %w", shutdownErr)
+	}
+	slog.Info("shutdown complete", "visits_dropped", visits.Dropped())
 	return nil
 }

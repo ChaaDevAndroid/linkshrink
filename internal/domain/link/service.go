@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/rand"
 	"net/url"
 	"strings"
@@ -24,14 +23,27 @@ const (
 )
 
 type service struct {
-	repo Repository
+	repo   Repository
+	visits VisitRecorder
+}
+
+// Option configures optional parts of the service. Existing callers of
+// NewService(repo) keep working: with no option, visits are recorded synchronously.
+type Option func(*service)
+
+func WithVisitRecorder(v VisitRecorder) Option {
+	return func(s *service) { s.visits = v }
 }
 
 // Compile-time check: fails the build if *service stops satisfying Service.
 var _ Service = (*service)(nil)
 
-func NewService(repo Repository) Service {
-	return &service{repo: repo}
+func NewService(repo Repository, opts ...Option) Service {
+	s := &service{repo: repo, visits: syncRecorder{repo: repo}}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *service) Create(ctx context.Context, longURL string) (Link, error) {
@@ -94,10 +106,8 @@ func (s *service) Resolve(ctx context.Context, code string) (Link, error) {
 		return Link{}, fmt.Errorf("resolve link: %w", err)
 	}
 
-	// A failed counter must not break the redirect: log it and carry on.
-	if err := s.repo.RecordVisit(ctx, code); err != nil {
-		slog.Warn("record visit failed", "code", code, "error", err)
-	}
+	// Fire and forget: the user's redirect no longer depends on the counter.
+	s.visits.Record(code)
 	return l, nil
 }
 
