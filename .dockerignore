@@ -9,3 +9,4 @@ Dockerfile
 tmp/
 server
 server.exe
+web
